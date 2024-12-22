@@ -1,0 +1,130 @@
+package org.example;
+
+import soot.*;
+import soot.options.Options;
+import soot.toolkits.graph.*;
+import soot.toolkits.scalar.*;
+
+import java.util.*;
+
+public class CFGGenerator {
+    public static void main(String[] args) {
+        // Step 1: Configure Soot
+        Options.v().set_prepend_classpath(true);
+        Options.v().set_src_prec(Options.src_prec_class);
+        Options.v().set_process_dir(Collections.singletonList("C:\\Users\\DELL\\IdeaProjects\\untitled\\target\\classes"));
+        String sootClassPath = "C:\\Program Files (x86)\\Java\\jre1.8.0_431\\lib\\rt.jar;" +
+                "C:\\Users\\DELL\\IdeaProjects\\untitled\\target\\classes;" +
+                "C:\\Users\\DELL\\.m2\\repository\\org\\soot-oss\\soot\\4.2.0\\soot-4.2.0.jar;" +
+                "C:\\Users\\DELL\\.m2\\repository\\org\\slf4j\\slf4j-simple\\1.7.36\\slf4j-simple-1.7.36.jar;" +
+                "C:\\Users\\DELL\\.m2\\repository\\org\\slf4j\\slf4j-api\\1.7.36\\slf4j-api-1.7.36.jar";
+        Options.v().set_soot_classpath(sootClassPath);
+
+        Options.v().set_output_format(Options.output_format_jimple);
+
+        // Step 2: Load the Main Class
+        SootClass sc = Scene.v().loadClassAndSupport("org.example.TestProgram");
+        sc.setApplicationClass();
+        Scene.v().loadNecessaryClasses();
+
+        SootMethod sm = sc.getMethodByName("main");
+        Body b = sm.retrieveActiveBody();
+
+        // Step 3: Generate the CFG
+        UnitGraph cfg = new BriefUnitGraph(b);
+
+        // Step 4: Perform Live Variable Analysis
+        LiveVariableAnalysis lva = new LiveVariableAnalysis(cfg);
+
+        // Step 5: Print the Analysis Results
+        System.out.println("Control Flow Graph with Live Variables:");
+        for (Unit u : cfg) {
+            System.out.println("Statement: " + u);
+            System.out.println("Live-In: " + lva.getLiveIn(u));
+            System.out.println("Live-Out: " + lva.getLiveOut(u));
+            System.out.println();
+        }
+    }
+}
+
+// Live Variable Analysis Implementation
+class LiveVariableAnalysis extends BackwardFlowAnalysis<Unit, FlowSet<String>> {
+    private final Map<Unit, Set<String>> use = new HashMap<>();
+    private final Map<Unit, Set<String>> def = new HashMap<>();
+
+    public LiveVariableAnalysis(UnitGraph graph) {
+        super(graph);
+        initializeUseAndDef(graph);
+        doAnalysis();
+    }
+
+    private void initializeUseAndDef(UnitGraph graph) {
+        for (Unit u : graph) {
+            Set<String> useSet = new HashSet<>();
+            Set<String> defSet = new HashSet<>();
+
+            for (ValueBox box : u.getUseBoxes()) {
+                if (box.getValue() instanceof Local) {
+                    useSet.add(box.getValue().toString());
+                }
+            }
+
+            for (ValueBox box : u.getDefBoxes()) {
+                if (box.getValue() instanceof Local) {
+                    defSet.add(box.getValue().toString());
+                }
+            }
+
+            use.put(u, useSet);
+            def.put(u, defSet);
+        }
+    }
+
+    @Override
+    protected void flowThrough(FlowSet<String> in, Unit unit, FlowSet<String> out) {
+        // live-in = use ∪ (live-out - def)
+
+        // Create a temporary FlowSet to hold (live-out - def)
+        FlowSet<String> temp = out.clone();
+        for (String defVar : def.get(unit)) {
+            temp.remove(defVar);
+        }
+
+        // Add use variables to live-in
+        for (String useVar : use.get(unit)) {
+            in.add(useVar);
+        }
+
+        // Merge the temporary set into live-in
+        in.union(temp);
+    }
+
+    @Override
+    protected FlowSet<String> newInitialFlow() {
+        return new ArraySparseSet<>();
+    }
+
+    @Override
+    protected FlowSet<String> entryInitialFlow() {
+        return new ArraySparseSet<>();
+    }
+
+    @Override
+    protected void merge(FlowSet<String> in1, FlowSet<String> in2, FlowSet<String> out) {
+        in1.union(in2, out);
+    }
+
+    @Override
+    protected void copy(FlowSet<String> source, FlowSet<String> dest) {
+        source.copy(dest);
+    }
+
+    public Set<String> getLiveIn(Unit unit) {
+        return new HashSet<>(getFlowBefore(unit).toList());
+    }
+
+    public Set<String> getLiveOut(Unit unit) {
+        return new HashSet<>(getFlowAfter(unit).toList());
+    }
+}
+
