@@ -29,7 +29,19 @@ public class CFGGenerator {
 
         SootMethod sm = sc.getMethodByName("main");
         Body b = sm.retrieveActiveBody();
+        Body body = sm.retrieveActiveBody();
+        UnitGraph graph = new ExceptionalUnitGraph(body);
 
+        // Print the CFG
+        System.out.println("Control Flow Graph:");
+        for (Unit unit : graph) {
+            System.out.println("Node: " + unit);
+            List<Unit> successors = graph.getSuccsOf(unit);
+            for (Unit succ : successors) {
+                System.out.println("  -> Successor: " + succ);
+            }
+        }
+        System.out.println();
         // Step 3: Generate the CFG
         UnitGraph cfg = new BriefUnitGraph(b);
 
@@ -77,27 +89,35 @@ class LiveVariableAnalysis extends BackwardFlowAnalysis<Unit, FlowSet<String>> {
 
             use.put(u, useSet);
             def.put(u, defSet);
+
+            // Debugging output
+            System.out.println("Statement: " + u);
+            System.out.println("Use: " + useSet);
+            System.out.println("Def: " + defSet);
+            System.out.println();
         }
     }
 
     @Override
     protected void flowThrough(FlowSet<String> in, Unit unit, FlowSet<String> out) {
-        // live-in = use ∪ (live-out - def)
-
-        // Create a temporary FlowSet to hold (live-out - def)
+        // Copy Live-Out to temporary set
         FlowSet<String> temp = out.clone();
+
+        // Remove variables defined by the current unit
         for (String defVar : def.get(unit)) {
             temp.remove(defVar);
         }
 
-        // Add use variables to live-in
+        // Add variables used by the current unit
         for (String useVar : use.get(unit)) {
-            in.add(useVar);
+            temp.add(useVar);
         }
 
-        // Merge the temporary set into live-in
+        // Assign the result to Live-In
+        in.clear();
         in.union(temp);
     }
+
 
     @Override
     protected FlowSet<String> newInitialFlow() {
