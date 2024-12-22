@@ -2,14 +2,13 @@ package org.example;
 
 import soot.*;
 import soot.jimple.AssignStmt;
-import soot.jimple.FieldRef;
 import soot.options.Options;
 
 import java.util.*;
 
 public class PointerAnalysisApp {
     public static void main(String[] args) {
-        // Step 1: Configure Soot
+        // Configure Soot
         Options.v().set_prepend_classpath(true);
         Options.v().set_src_prec(Options.src_prec_class);
         Options.v().set_process_dir(Collections.singletonList("C:\\Users\\DELL\\IdeaProjects\\untitled\\target\\classes"));
@@ -21,36 +20,38 @@ public class PointerAnalysisApp {
                 "C:\\Users\\DELL\\.m2\\repository\\org\\slf4j\\slf4j-simple\\1.7.36\\slf4j-simple-1.7.36.jar;" +
                 "C:\\Users\\DELL\\.m2\\repository\\org\\slf4j\\slf4j-api\\1.7.36\\slf4j-api-1.7.36.jar";
         Options.v().set_soot_classpath(sootClassPath);
-
         Options.v().set_output_format(Options.output_format_jimple);
 
-        // Step 2: Load the Main Class
-        SootClass sc = Scene.v().loadClassAndSupport("org.example.TestProgram3");
+        // Load Main Class
+        SootClass sc = Scene.v().loadClassAndSupport("org.example.TestProgramWithNull");
         sc.setApplicationClass();
         Scene.v().loadNecessaryClasses();
 
+        // Analyze Main Method
         SootMethod sm = sc.getMethodByName("main");
         Body body = sm.retrieveActiveBody();
 
-        // Step 3: Run Pointer Analysis (Steensgaard's Algorithm)
+        // Run Pointer Analysis
         PointerAnalysis pointerAnalysis = new PointerAnalysis();
         pointerAnalysis.analyze(body);
 
-        // Step 4: Print Pointer Analysis Results
+        // Print Results
         pointerAnalysis.printResults();
     }
 }
 
 class PointerAnalysis {
     private final Map<String, String> parent = new HashMap<>();
+    private final Set<String> nullPointers = new HashSet<>();
+    private final List<String> dereferences = new ArrayList<>();
 
     // Find operation with path compression
     private String find(String var) {
         if (!parent.containsKey(var)) {
-            parent.put(var, var); // Initialize if not found
+            parent.put(var, var);
         }
         if (!parent.get(var).equals(var)) {
-            parent.put(var, find(parent.get(var))); // Path compression
+            parent.put(var, find(parent.get(var)));
         }
         return parent.get(var);
     }
@@ -68,37 +69,55 @@ class PointerAnalysis {
         for (Unit unit : body.getUnits()) {
             if (unit instanceof AssignStmt) {
                 AssignStmt stmt = (AssignStmt) unit;
-                Value left = stmt.getLeftOp();
-                Value right = stmt.getRightOp();
+                String left = stmt.getLeftOp().toString();
+                String right = stmt.getRightOp().toString();
 
-                if (left instanceof Local && right instanceof Local) {
-                    // Unify variables
-                    union(left.toString(), right.toString());
-                } else if (left instanceof Local && right instanceof FieldRef) {
-                    // Handle field references
-                    union(left.toString(), right.toString());
+                // Handle null assignments
+                if ("null".equals(right)) {
+                    nullPointers.add(left);
+                } else {
+                    nullPointers.remove(left); // Overwritten variables are no longer null
                 }
-                // Add more rules as needed
+
+                // Handle aliasing
+                union(left, right);
+            }
+
+            // Detect potential dereferences
+            String stmtStr = unit.toString();
+            if (stmtStr.contains(".")) {
+                String derefVar = stmtStr.split("\\.")[0].trim();
+                dereferences.add(derefVar);
             }
         }
     }
 
     public void printResults() {
         System.out.println("=== Pointer Analysis Results ===");
+
+        // Alias Classes
         Map<String, Set<String>> equivalenceClasses = new HashMap<>();
         for (String var : parent.keySet()) {
             String root = find(var);
             equivalenceClasses.computeIfAbsent(root, k -> new HashSet<>()).add(var);
         }
-        int aliasClassCount = 1;
+
+        int classId = 1;
         for (Map.Entry<String, Set<String>> entry : equivalenceClasses.entrySet()) {
-            System.out.println("Alias Class " + aliasClassCount + ":");
+            System.out.println("Alias Class " + classId + ":");
             for (String alias : entry.getValue()) {
                 System.out.println("  - " + alias);
             }
-            aliasClassCount++;
-            System.out.println(); // Add spacing between alias classes
+            classId++;
+            System.out.println();
+        }
+
+        // Null Pointer Dereference Warnings
+        System.out.println("=== Null Pointer Dereferencing Warnings ===");
+        for (String deref : dereferences) {
+            if (nullPointers.contains(deref)) {
+                System.out.println("Warning: Potential null pointer dereference at variable '" + deref + "'");
+            }
         }
     }
-
 }
